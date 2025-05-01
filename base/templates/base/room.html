@@ -1,0 +1,207 @@
+{% extends 'base/main.html' %}
+{% load static %}
+{% block content %}
+
+<div class="container">
+    <div class="videos">
+        <main>
+            <section id="room-name-wrapper">
+                <p>Room Name: <span id="room-name"></span></p>
+            </section>
+
+            <section id="video-streams"></section>
+
+            <section id="controls-wrapper">
+                <div class="icon-wrapper">
+                    <img class="control-icon" id="mic-btn" src="{% static 'images/microphone.svg' %}" />
+                </div>
+                <div class="icon-wrapper">
+                    <img class="control-icon" id="camera-btn" src="{% static 'images/video.svg' %}" />
+                </div>
+                <div class="icon-wrapper">
+                    <img class="control-icon" id="leave-btn" src="{% static 'images/leave.svg' %}" />
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="transcriptions">
+        <div class="transcription-section">
+            <h2>Enter Text or Use Mic</h2>
+            <br>
+            <form id="textForm">
+                <input type="text" name="message" class="mytext" id="speechToText" placeholder=""
+                    style="text-transform:capitalize">
+                <button type="button" name="button" class="mic" onclick="record()">
+                    <img src="{% static 'images/mic3.png' %}" height="32px" width="38px" />
+                </button>
+                <button id="sendBtn" class="submit">Send</button>
+            </form>
+
+            <br>
+            <div id="messages" style="display: none;"></div>
+
+            <form action="" method="post">
+                {% csrf_token %}
+                <label for="myInput">Message</label>
+                <input type="text" id="myInput" name="sen" style="text-transform: capitalize;">
+            </form>
+
+            <br>
+            <table cellspacing="20px" style="display: none;">
+                <tr>
+                    <td class="td">The text that you entered is:</td>
+                    <td class="td">{{ text }}</td>
+                </tr>
+                <tr>
+                    <td class="td">Key words in sentence:</td>
+                    <td class="td">
+                        <ul class="td" id="list">
+                            {% for word in words %}
+                            <li style="margin-right: 8px">{{ word }}</li>
+                            {% endfor %}
+                        </ul>
+                    </td>
+                </tr>
+            </table>
+
+            <h2 align="center">Sign Language Animation</h2>
+
+            <div style="text-align:center">
+                <button class="submit" onclick="playPause()">Play/Pause</button>
+                <video id="videoPlayer" width="600" height="350" preload="auto" autoplay>
+                    <source src="" type="video/mp4">
+                    Your browser does not support HTML5 video.
+                </video>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    let url = `ws://${window.location.host}/ws/socket-server/`;
+    const chatSocket = new WebSocket(url);
+
+    chatSocket.onmessage = function (e) {
+        let data = JSON.parse(e.data);
+        console.log('Data', data);
+
+        if (data.type === 'chat') {
+            let messages = document.getElementById('messages');
+            let existingMessages = [...messages.getElementsByTagName('p')].map(p => p.textContent);
+            
+            if (!existingMessages.includes(data.message)) {
+                messages.insertAdjacentHTML('beforeend', `<div><p>${data.message}</p></div>`);
+            }
+
+            document.getElementById("myInput").value = data.message;
+            triggerAnimation(data.message);
+        }
+    };
+
+    document.getElementById('textForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        let message = e.target.message.value.trim();
+
+        if (message) {
+            chatSocket.send(JSON.stringify({ 'message': message }));
+            let messages = document.getElementById('messages');
+            messages.insertAdjacentHTML('beforeend', `<div><p>${message}</p></div>`);
+        }
+
+        e.target.reset();
+    });
+
+    function record() {
+        var recognition = new webkitSpeechRecognition();
+        recognition.lang = 'en-IN';
+        recognition.onresult = function (event) {
+            document.getElementById('speechToText').value = event.results[0][0].transcript;
+        };
+        recognition.start();
+    }
+
+    function triggerAnimation(inputText) {
+        let formData = new FormData();
+        formData.append("sen", inputText);
+
+        fetch("{% url 'animation' %}", {
+            method: "POST",
+            body: formData,
+            headers: {
+                "X-CSRFToken": document.querySelector("[name=csrfmiddlewaretoken]").value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            let wordsList = document.getElementById("list");
+            wordsList.innerHTML = "";
+
+            data.words.forEach((word, index) => {
+                let li = document.createElement("li");
+                li.textContent = word;
+                li.id = "word-" + index;
+                li.style.marginRight = "8px";
+                wordsList.appendChild(li);
+            });
+
+            play();
+        })
+        .catch(error => console.error("Error:", error));
+    }
+
+    function play() {
+        let videoSource = [];
+        let videoList = document.getElementById("list");
+        
+        if (!videoList) {
+            console.error("List element not found!");
+            return;
+        }
+
+        let videos = videoList.getElementsByTagName("li");
+        for (let j = 0; j < videos.length; j++) {
+            videoSource.push("/static/data/" + videos[j].innerText + ".mp4");
+        }
+
+        if (videoSource.length === 0) {
+            console.warn("No videos found!");
+            return;
+        }
+
+        let i = 0;
+        function videoPlay(videoNum) {
+            let videoPlayer = document.getElementById("videoPlayer");
+            videoPlayer.src = videoSource[videoNum];
+            videoPlayer.load();
+            videoPlayer.play();
+        }
+
+        document.getElementById('videoPlayer').addEventListener('ended', function () {
+            i++;
+            if (i < videoSource.length) {
+                videoPlay(i);
+            }
+        });
+
+        videoPlay(0);
+    }
+
+    function playPause() {
+        let videoPlayer = document.getElementById("videoPlayer");
+        if (!videoPlayer) {
+            console.error("Video player element not found!");
+            return;
+        }
+        if (videoPlayer.paused) {
+            play();
+        } else {
+            videoPlayer.pause();
+        }
+    }
+</script>
+
+<script type="text/javascript" src="{% static 'assets/AgoraRTC_N-4.8.0.js' %}"></script>
+<script type="text/javascript" src="{% static 'js/streams.js' %}"></script>
+
+{% endblock content %}
